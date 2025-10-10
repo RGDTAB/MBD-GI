@@ -6,9 +6,9 @@ Still a Work-In-Progress, but the core optimization algorithm is in place and fu
 
 ### External Libraries
 This libraries are included in the external/ folder:  
--GLAD
--IMGUI
--tinyobjloader
+- GLAD  
+- IMGUI  
+- tinyobjloader  
 
 This program also depends on:  
--GLFW
+- GLFW
