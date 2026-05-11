@@ -9,7 +9,10 @@ void Renderer::init_probes()
     probe_draw_program = compile_shader_program("src/renderer/shaders/probe.vs", "src/renderer/shaders/probe.fs");
     probe_eval_program = compile_compute_shader("src/renderer/shaders/compute/probe_eval.cs");
     probe_comp_program = compile_compute_shader("src/renderer/shaders/compute/probe_comp.cs");
-    glm::vec3 vertices[] = {
+
+    // Create a vbo and vao to represent a simple bounding box for the probes
+    const int probe_box_vertex_count = 36;
+    glm::vec3 probe_box_vertices[probe_box_vertex_count] = {
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(1.0f, 0.0f, 0.0f),
         glm::vec3(1.0f, 1.0f, 0.0f),
@@ -58,7 +61,7 @@ void Renderer::init_probes()
 
     glBindVertexArray(probe_box_vao);
     glBindBuffer(GL_ARRAY_BUFFER, probe_box_vbo);
-    glBufferData(GL_ARRAY_BUFFER, 36 * sizeof(glm::vec3), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, probe_box_vertex_count * sizeof(glm::vec3), probe_box_vertices, GL_STATIC_DRAW);
 
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *) 0);
@@ -66,6 +69,7 @@ void Renderer::init_probes()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    // Create the renderbuffers used when gathering the probes
     glGenTextures(1, &probe_color_buffer);
     glBindTexture(GL_TEXTURE_2D, probe_color_buffer);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA16F, 4096, 4096);
@@ -78,12 +82,14 @@ void Renderer::init_probes()
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT32F, 4096, 4096);
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
+    // Create a temporary buffer to store sh coeffs before quantizing them
     glGenBuffers(1, &probe_temp_buffer);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, probe_temp_buffer);
     glBufferData(GL_SHADER_STORAGE_BUFFER, (4 * 9 * 4096) * sizeof(float), nullptr, GL_DYNAMIC_COPY);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
+// TODO: check to make sure the probe isn't inside of the mesh
 bool Renderer::check_probe(glm::vec3 pos)
 {
     return true;
@@ -91,9 +97,6 @@ bool Renderer::check_probe(glm::vec3 pos)
 
 void Renderer::place_probes(glm::vec3 extents, glm::vec3 offset, glm::ivec3 res)
 {
-    glm::mat4 projection = glm::mat4(1.0f);
-    projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.01f, 3.0f);
-
     probe_grid_offset = offset;
     probe_grid_res = res;
     probe_grid_extent = extents;
@@ -121,6 +124,7 @@ void Renderer::place_probes(glm::vec3 extents, glm::vec3 offset, glm::ivec3 res)
     std::vector<unsigned int> valid_list;
     valid_list.resize(probes.size(), 0);
 
+    // Create GL buffers for probe data
     glGenBuffers(1, &probe_vbo);
     glGenVertexArrays(1, &probe_vao);
 
@@ -136,9 +140,8 @@ void Renderer::place_probes(glm::vec3 extents, glm::vec3 offset, glm::ivec3 res)
 
     glGenBuffers(1, &probe_data_buffer);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, probe_data_buffer);
-    // Using quantization, SH2 for RGB can fit within 48 bytes in VRAM
+    // Using quantization, SH3 for RGB can fit within 48 bytes or less
     glBufferData(GL_SHADER_STORAGE_BUFFER, (probe_grid_res.x * probe_grid_res.y * probe_grid_res.z * 12 + 12) * sizeof(float), nullptr, GL_STATIC_DRAW);
-    //glBufferData(GL_SHADER_STORAGE_BUFFER, (probe_grid_res.x * probe_grid_res.y * probe_grid_res.z * 36 + 12) * sizeof(float), nullptr, GL_STATIC_DRAW);
     unsigned int val = 0;
     glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &val);
 
@@ -147,22 +150,11 @@ void Renderer::place_probes(glm::vec3 extents, glm::vec3 offset, glm::ivec3 res)
     glBufferSubData(GL_SHADER_STORAGE_BUFFER, 32, 12, &probe_grid_offset);
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-    glGenBuffers(1, &probe_copy_buffer);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, probe_copy_buffer);
-    // Using quantization, SH2 for RGB can fit within 48 bytes in VRAM
-    glBufferData(GL_SHADER_STORAGE_BUFFER, (probe_grid_res.x * probe_grid_res.y * probe_grid_res.z * 12 + 12) * sizeof(float), nullptr, GL_STATIC_DRAW);
-    //glBufferData(GL_SHADER_STORAGE_BUFFER, (probe_grid_res.x * probe_grid_res.y * probe_grid_res.z * 36 + 12) * sizeof(float), nullptr, GL_STATIC_DRAW);
-    val = 0;
-    glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &val);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 12, &probe_grid_res);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 16, 12, &probe_grid_extent);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 32, 12, &probe_grid_offset);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
 void Renderer::capture_probes()
 {
+    // Create model and projection matrices, and bind render buffers
     glm::vec3 target_vectors[] = {
         glm::vec3(1.0f, 0.0f, 0.0f),
         glm::vec3(-1.0f, 0.0f, 0.0f),
@@ -191,6 +183,19 @@ void Renderer::capture_probes()
 
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
+    /* The render buffer is shared between probes, and their render data is
+     * converted to irradiance SH in batches. This is done as it's
+     * considerably faster than going through the expensive context switching
+     * at each draw.
+     *
+     * Pseudocode:
+     * while probes remaining:
+     *   for each cubemap face:
+     *     for each probe in the batch:
+     *       draw cornell box;
+     *     convert batch to irradiance SH
+     *   quantize SH and store in the final buffer
+     */
     int length = probes.size();
     int width = 4096 / 64;
     int area = width * width;
@@ -245,28 +250,23 @@ void Renderer::capture_probes()
         glUseProgram(probe_comp_program);
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, probe_temp_buffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, probe_copy_buffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, probe_data_buffer);
         glUniform1ui(0, diff);
         glUniform1ui(1, probe_index);
 
         glDispatchCompute(compress_groups, 1, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
     }
-    glBindBuffer(GL_COPY_READ_BUFFER, probe_copy_buffer);
-    glBindBuffer(GL_COPY_WRITE_BUFFER, probe_data_buffer);
-    glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0, (probe_grid_res.x * probe_grid_res.y * probe_grid_res.z * 12 + 12) * sizeof(float));
-    //glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0, (probe_grid_res.x * probe_grid_res.y * probe_grid_res.z * 36 + 12) * sizeof(float));
-    glBindBuffer(GL_COPY_READ_BUFFER, 0);
-    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
     glUseProgram(0);
 }
 
-CompSH *
+QuantSH *
 Renderer::get_probe_data()
 {
-    CompSH *data = new CompSH[probe_grid_res.x * probe_grid_res.y * probe_grid_res.z];
+    QuantSH *data = new QuantSH[probe_grid_res.x * probe_grid_res.y * probe_grid_res.z];
     if (data == nullptr) {
         return data;
     }

@@ -56,7 +56,7 @@ class Solver {
         glm::vec3 *samples = nullptr;
 
         glm::vec4 unpack4(unsigned int r, float bv);
-        void uncomp_probe_data(unsigned int *bits, float dc, float *out);
+        void unquant_probe_data(unsigned int *bits, float dc, float *out);
 
         float *compute_cov();
 
@@ -69,7 +69,6 @@ class Solver {
         void eval_mbd(MBD &mbd, glm::vec3 p, float *b, float *c, float *out);
 
         void estimate_gradients(MBD &mbd, glm::vec3 p, float *b, float *c, float *r);
-        void reset_gradients(MBD &mbd);
 
         float get_mbd_error(MBD &mbd, bool compute_gradients, bool reuse_samples);
         float newton_step(MBD &mbd, float step_size = 1.0f);
@@ -90,8 +89,7 @@ class Solver {
             }
         }
 
-        void set_probe_data(CompSH *comp_sh, glm::ivec3 probe_res);
-        void set_raw_probe_data(float *data, glm::ivec3 probe_res);
+        void set_probe_data(QuantSH *comp_sh, glm::ivec3 probe_res);
 
         float *compute_pca(int n_components);
         void solve_mbd(MBD &mbd);

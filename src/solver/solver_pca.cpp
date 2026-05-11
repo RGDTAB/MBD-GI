@@ -4,6 +4,7 @@
 
 #include "solver.h"
 
+// Computes the covariance matrix of the probe data
 float *Solver::compute_cov()
 {
     int probe_count = probe_grid_res.x * probe_grid_res.y * probe_grid_res.z;
@@ -21,6 +22,13 @@ float *Solver::compute_cov()
     return cov;
 }
 
+/* Computes the principal components of the probe data using the covariance
+ * method. Eigenvectors are calculated using "orthonormal iteration", which is
+ * related to the QR algorithm for eigenvalue computation. It was slightly
+ * easier to write than a full QR decomposition. It uses modified Gram-Schmidt
+ * for orthonormalization, so it should be relatively stable.
+ * https://ericdarve.github.io/NLA/content/orthogonal_iteration.html
+ */
 float *Solver::compute_pca(int n_components)
 {
     if (probe_data == nullptr) {
@@ -67,14 +75,6 @@ float *Solver::compute_pca(int n_components)
         if (error < 0.0001f) {
             break;
         }
-    }
-    std::cout << std::setprecision(2);
-    for (int i = 0; i < n_components; i++) {
-        std::cout << "[";
-        for (int k = 0; k < DIMS; k++) {
-            std::cout << r[i * DIMS + k] << ",";
-        }
-        std::cout << "]\n";
     }
 
     delete[] cov;

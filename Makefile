@@ -11,7 +11,7 @@ INC_DIRS := external/ src/
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
 CPPFLAGS ?= $(INC_FLAGS) -MMD -MP
-CXXFLAGS := -Og -g -std=c++20
+CXXFLAGS := -Og -g -std=c++11
 LDFLAGS := -lglfw -ldl
 
 $(TARGET_EXEC): $(OBJS)

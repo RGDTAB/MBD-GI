@@ -11,7 +11,7 @@ glm::vec4 Solver::unpack4(unsigned int r, float bv)
     return tmp;
 }
 
-void Solver::uncomp_probe_data(unsigned int *bits, float dc, float *out)
+void Solver::unquant_probe_data(unsigned int *bits, float dc, float *out)
 {
     float bv = float(1 << 7) - 1.0f;
     float lc = dc * sqrt(3.0f);
@@ -31,8 +31,14 @@ void Solver::uncomp_probe_data(unsigned int *bits, float dc, float *out)
     out[8] = shB.w;
 }
 
-void Solver::set_probe_data(CompSH *comp_sh, glm::ivec3 probe_res)
+// Dequantizes SH probe data and centers the bands around their mean values
+// (important for solving for MBD)
+void Solver::set_probe_data(QuantSH *quant_sh, glm::ivec3 probe_res)
 {
+    if (probe_data) {
+        delete[] probe_data;
+        probe_data = nullptr;
+    }
     probe_grid_res = probe_res;
     int probe_count = probe_grid_res.x * probe_grid_res.y * probe_grid_res.z;
     probe_data = new float[probe_count * DIMS];
@@ -42,20 +48,20 @@ void Solver::set_probe_data(CompSH *comp_sh, glm::ivec3 probe_res)
         float dc;
         float r[9], g[9], b[9];
 
-        dc = comp_sh[i].dc.r;
-        bits[0] = comp_sh[i].comp_bits[0].r;
-        bits[1] = comp_sh[i].comp_bits[1].r;
-        uncomp_probe_data(bits, dc, r);
+        dc = quant_sh[i].dc.r;
+        bits[0] = quant_sh[i].quant_bits[0].r;
+        bits[1] = quant_sh[i].quant_bits[1].r;
+        unquant_probe_data(bits, dc, r);
 
-        dc = comp_sh[i].dc.g;
-        bits[0] = comp_sh[i].comp_bits[0].g;
-        bits[1] = comp_sh[i].comp_bits[1].g;
-        uncomp_probe_data(bits, dc, g);
+        dc = quant_sh[i].dc.g;
+        bits[0] = quant_sh[i].quant_bits[0].g;
+        bits[1] = quant_sh[i].quant_bits[1].g;
+        unquant_probe_data(bits, dc, g);
 
-        dc = comp_sh[i].dc.b;
-        bits[0] = comp_sh[i].comp_bits[0].b;
-        bits[1] = comp_sh[i].comp_bits[1].b;
-        uncomp_probe_data(bits, dc, b);
+        dc = quant_sh[i].dc.b;
+        bits[0] = quant_sh[i].quant_bits[0].b;
+        bits[1] = quant_sh[i].quant_bits[1].b;
+        unquant_probe_data(bits, dc, b);
         for (int j = 0; j < 9; j++) {
             probe_data[i * DIMS + j * 3 + 0] = r[j];
             means[j * 3 + 0] += probe_data[i * DIMS + j * 3 + 0];
@@ -74,31 +80,6 @@ void Solver::set_probe_data(CompSH *comp_sh, glm::ivec3 probe_res)
             probe_data[p * DIMS + k] -= means[k];
         }
     }
-
-
-    /*std::cout << std::setprecision(3);
-    for (int i = 0; i < probe_count; i++) {
-        std::cout << "[";
-        for (int j = 0; j < DIMS; j++) {
-            std::cout << probe_data[i * DIMS + j] << ", ";
-        }
-        std::cout << "],\n";
-    }*/
-}
-
-void Solver::set_raw_probe_data(float *data, glm::ivec3 probe_res)
-{
-    probe_grid_res = probe_res;
-    unsigned int probe_count = probe_grid_res.x * probe_grid_res.y * probe_grid_res.z;
-    probe_data = new float[probe_count * DIMS];
-    std::memcpy(probe_data, data, probe_count * DIMS * sizeof(float));
-    /*for (int i = 0; i < probe_count; i++) {
-        std::cout << "[";
-        for (int j = 0; j < DIMS; j++) {
-            std::cout << probe_data[i * DIMS + j] << ", ";
-        }
-        std::cout << "],\n";
-    }*/
 }
 
 void Solver::normalize(float *v)
@@ -131,15 +112,16 @@ void Solver::proj(float *u, float *v, float *out)
     }
 }
 
+// Modified Gram-Schmidt
 void Solver::orthonormalize(float *r, int n_vectors)
 {
     for (int u = 1; u < n_vectors; u++) {
-        for (int v = 0; v < u; v++) {
+        for (int k = 0; k < u; k++) {
             float tmp[DIMS];
-            proj(r + v * DIMS, r + u * DIMS, tmp);
+            proj(r + k * DIMS, r + u * DIMS, tmp);
 
-            for (int k = 0; k < DIMS; k++) {
-                r[u * DIMS + k] -= tmp[k];
+            for (int i = 0; i < DIMS; i++) {
+                r[u * DIMS + i] -= tmp[i];
             }
         }
     }

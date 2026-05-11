@@ -2,8 +2,8 @@
 
 #include <glm/glm.hpp>
 
-struct CompSH {
-    glm::ivec4 comp_bits[2];
+struct QuantSH {
+    glm::ivec4 quant_bits[2];
     glm::vec4 dc;
 };
 

@@ -1,4 +1,4 @@
-#include <cstdio>
+#include <iostream>
 #include <thread>
 #include <vector>
 
@@ -106,6 +106,7 @@ void Solver::eval_mbd(MBD &mbd, glm::vec3 p, float *b, float *c, float *out)
     }
 }
 
+// First and second partial derivs calculated from formulas in MBD paper
 void Solver::estimate_gradients(MBD &mbd, glm::vec3 p, float *b, float *c, float *r)
 {
     int c_ids[8];
@@ -131,20 +132,6 @@ void Solver::estimate_gradients(MBD &mbd, glm::vec3 p, float *b, float *c, float
     }
     gradient_mutex.unlock();
 }
-
-void Solver::reset_gradients(MBD &mbd)
-{
-    int basis_vector_count = mbd.basis_res.x * mbd.basis_res.y * mbd.basis_res.z;
-    for (int i = 0; i < basis_vector_count * mbd.rank * DIMS; i++) {
-        g_b[i] = h_b[i] = 0.0f;
-    }
-
-    int coeff_count = mbd.coeff_res.x * mbd.coeff_res.y * mbd.coeff_res.z;
-    for (int i = 0; i < coeff_count * mbd.rank; i++) {
-        g_c[i] = h_c[i] = 0.0f;
-    }
-}
-
 
 float Solver::get_mbd_error(MBD &mbd, bool compute_gradients, int index)
 {
@@ -247,7 +234,7 @@ float Solver::newton_step(MBD &mbd, float step_size, int index)
 
 void Solver::main_signal_ready(int &ready_pos)
 {
-    std::unique_lock lock(main_mutex);
+    std::unique_lock<std::mutex> lock(main_mutex);
     error = 0.0f;
     m = 0.0f;
     main_ready[ready_pos] = true;
@@ -262,7 +249,7 @@ void Solver::main_signal_ready(int &ready_pos)
 
 void Solver::solver_thread_wait(int index, int &ready_pos)
 {
-    std::unique_lock lock(thread_mutexes[index]);
+    std::unique_lock<std::mutex> lock(thread_mutexes[index]);
     if (!main_ready[ready_pos]) {
         if (pending.fetch_sub(1) == 1) {
             main_cv.notify_one();
@@ -333,6 +320,7 @@ void Solver::solver_thread(MBD &mbd, int index)
 
 void Solver::solve_mbd(MBD &mbd)
 {
+    // Allocate data for basis and coeffs, as well as their partial derivs
     int basis_vector_count = mbd.basis_res.x * mbd.basis_res.y * mbd.basis_res.z;
     mbd.b = new float[mbd.rank * DIMS * basis_vector_count];
 
@@ -346,13 +334,15 @@ void Solver::solve_mbd(MBD &mbd)
 
     samples = new glm::vec3[coeff_count];
 
+    // Create threads and mutex objects
+    // Performance doesn't really scale well with num of threads
     n_threads = std::thread::hardware_concurrency() - 1;
     thread_mutexes = new std::mutex[n_threads];
     bv_per_thread = (basis_vector_count - 1) / n_threads + 1;
     cv_per_thread = (coeff_count - 1) / n_threads + 1;
 
     std::memcpy(mbd.means, means, DIMS * sizeof(float));
-    float *pca = compute_pca(mbd.rank);
+    const float *pca = compute_pca(mbd.rank);
     for (int b = 0; b < basis_vector_count; b++) {
         std::memcpy(mbd.b + b * mbd.rank * DIMS, pca, mbd.rank * DIMS * sizeof(float));
     }
@@ -367,15 +357,15 @@ void Solver::solve_mbd(MBD &mbd)
     }
 
     int ready_pos = 0;
-    int n_converged = 0;
+    const int max_iter = 64;
     int i;
-    for (i = 0; i < 256; i++) {
+    for (i = 0; i < max_iter; i++) {
         generate_random_samples(mbd);
 
         // Error calculation synchronization
         main_signal_ready(ready_pos);
 
-        std::printf("Error: %f\n", error);
+        std::cout << "MBD Error: " << error << std::endl;
         float old_error = error;
 
         // Newton Step Synchronization
@@ -390,12 +380,15 @@ void Solver::solve_mbd(MBD &mbd)
 
         float new_error = error;
 
+        // Perform backtracking line search
+        // c_1 coeff is taken from Nocedal and Wright
+        // alpha is somewhat coarse, but fast enough
         float actual_step_size = 1.0f;
         int steps = 0;
-        float alpha = 0.1f;
-        float c_1 = 0.0001f;
+        const float alpha = 0.3f;
+        const float c_1 = 0.0001f;
         l_m *= c_1;
-        while (old_error - new_error <= actual_step_size * l_m && steps < 8) {
+        while (old_error - new_error <= actual_step_size * l_m && steps < 10) {
             steps++;
             float next_step_size = alpha * actual_step_size;
 
@@ -410,14 +403,9 @@ void Solver::solve_mbd(MBD &mbd)
         }
 
         backtracking_finished = true;
-        std::printf("New Error: %f\n", new_error);
-        /*if (old_error - new_error < 1.0E-3f) {
-            std::printf("Converged\n");
-            if (++n_converged == 3) {
-                break;
-            }
-        }*/
-        if (i < 511) {
+        std::cout << "MBD New Error: " << new_error << std::endl;
+
+        if (i < max_iter - 1) {
             main_signal_ready(ready_pos);
         }
     }
@@ -426,11 +414,7 @@ void Solver::solve_mbd(MBD &mbd)
     main_ready[0] = main_ready[1] = true;
     thread_cv.notify_all();
 
-    if (i >= 128) {
-        std::printf("Failed to converge within %d iterations\n", i);
-    } else {
-        std::printf("Converged in %d iterations\n", i);
-    }
+    std::cout << "Finished in " << i << " iterations" << std::endl;
 
     for (int t = 0; t < n_threads; t++) {
         threads[t].join();

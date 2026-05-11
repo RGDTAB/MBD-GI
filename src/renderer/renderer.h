@@ -52,7 +52,6 @@ class Renderer {
     unsigned int probe_vbo;
     unsigned int probe_vao;
     unsigned int probe_data_buffer = 0;
-    unsigned int probe_copy_buffer = 0;
     unsigned int probe_temp_buffer = 0;
     unsigned int probe_bounce_count = 0;
     unsigned int probe_color_buffer;
@@ -116,7 +115,7 @@ class Renderer {
     unsigned int compile_shader_program(const char *vert, const char *frag);
     unsigned int compile_compute_shader(const char *comp);
 
-    CompSH *get_probe_data();
+    QuantSH *get_probe_data();
     int get_probe_count()
     {
         return probe_grid_res.x * probe_grid_res.y * probe_grid_res.z;

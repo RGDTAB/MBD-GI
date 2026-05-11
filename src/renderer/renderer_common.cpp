@@ -14,6 +14,7 @@ unsigned int Renderer::compile_shader_program(const char *vert, const char *frag
     long len;
     char *shader_text;
 
+    // Read vertex shader
     fp = std::fopen(vert, "r");
     std::fseek(fp, 0, SEEK_END);
     len = std::ftell(fp);
@@ -23,6 +24,7 @@ unsigned int Renderer::compile_shader_program(const char *vert, const char *frag
     std::fclose(fp);
     shader_text[len] = '\0';
 
+    // Compile vertex shader
     unsigned int vert_shader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vert_shader, 1, &shader_text, NULL);
     glCompileShader(vert_shader);
@@ -33,6 +35,7 @@ unsigned int Renderer::compile_shader_program(const char *vert, const char *frag
     }
     delete[] shader_text;
 
+    // Read fragment shader
     fp = std::fopen(frag, "r");
     std::fseek(fp, 0, SEEK_END);
     len = std::ftell(fp);
@@ -42,6 +45,7 @@ unsigned int Renderer::compile_shader_program(const char *vert, const char *frag
     std::fclose(fp);
     shader_text[len] = '\0';
 
+    // Compile fragment shader
     unsigned int frag_shader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(frag_shader, 1, &shader_text, NULL);
     glCompileShader(frag_shader);
@@ -52,6 +56,7 @@ unsigned int Renderer::compile_shader_program(const char *vert, const char *frag
     }
     delete[] shader_text;
 
+    // Link shader program
     unsigned int shader_program = glCreateProgram();
     glAttachShader(shader_program, vert_shader);
     glAttachShader(shader_program, frag_shader);
@@ -76,6 +81,7 @@ unsigned int Renderer::compile_compute_shader(const char *comp)
     long len;
     char *shader_text;
 
+    // Read compute shader
     fp = std::fopen(comp, "r");
     std::fseek(fp, 0, SEEK_END);
     len = std::ftell(fp);
@@ -85,6 +91,7 @@ unsigned int Renderer::compile_compute_shader(const char *comp)
     std::fclose(fp);
     shader_text[len] = '\0';
 
+    // Compile compute shader
     unsigned int comp_shader = glCreateShader(GL_COMPUTE_SHADER);
     glShaderSource(comp_shader, 1, &shader_text, NULL);
     glCompileShader(comp_shader);
@@ -95,22 +102,32 @@ unsigned int Renderer::compile_compute_shader(const char *comp)
     }
     delete[] shader_text;
 
+    // Link shader program
     unsigned int shader_program = glCreateProgram();
     glAttachShader(shader_program, comp_shader);
     glLinkProgram(shader_program);
+
+    int log_len;
+    glGetProgramInfoLog(shader_program, 512, &log_len, info_log);
+    if (log_len > 0) {
+        std::cout << "LINKER INFO: \n" << info_log << std::endl;
+    }
+
 
     glDeleteShader(comp_shader);
     return shader_program;
 }
 
-void Renderer::create_vertex_buffers(const char *obj, const char *mtl_dir, unsigned int &vbo, unsigned int &vao, unsigned int &vertex_count)
+// Read from the file located at obj_file, and create a vbo and vao with the format {pos, color, normal}
+void Renderer::create_vertex_buffers(const char *obj_file, const char *mtl_dir, unsigned int &vbo, unsigned int &vao, unsigned int &vertex_count)
 {
+    // Read OBJ and store attributes in a vector
     tinyobj::attrib_t attributes;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
     std::string warnings;
     std::string errors;
-    tinyobj::LoadObj(&attributes, &shapes, &materials, &warnings, &errors, obj, mtl_dir);
+    tinyobj::LoadObj(&attributes, &shapes, &materials, &warnings, &errors, obj_file, mtl_dir);
 
     std::vector<Vertex> verts;
     for (auto shape : shapes) {
@@ -145,6 +162,7 @@ void Renderer::create_vertex_buffers(const char *obj, const char *mtl_dir, unsig
     vertex_count = verts.size();
     unsigned int size = vertex_count * sizeof(Vertex);
 
+    // Create GL buffers
     glGenBuffers(1, &vbo);
     glGenVertexArrays(1, &vao);
 
@@ -165,6 +183,7 @@ void Renderer::create_vertex_buffers(const char *obj, const char *mtl_dir, unsig
     glBindVertexArray(0);
 }
 
+// Creates a depth buffer configured to be sampled as a shadowmap
 void Renderer::generate_shadow_map(unsigned int resolution, unsigned int *fbo, unsigned int &tex)
 {
     if (fbo != nullptr) {

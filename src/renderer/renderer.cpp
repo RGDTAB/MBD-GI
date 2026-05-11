@@ -5,6 +5,7 @@
 
 void Renderer::init()
 {
+    // Init glfw
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -19,6 +20,7 @@ void Renderer::init()
     glViewport(0, 0, 800, 800);
     width = height = 800;
 
+    // Create an HDR color buffer
     glGenTextures(1, &hdr_color_buffer);
     glBindTexture(GL_TEXTURE_2D, hdr_color_buffer);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
@@ -28,15 +30,17 @@ void Renderer::init()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
 
+    // Create the necessary shader programs
     draw_no_gi_program = compile_shader_program("src/renderer/shaders/draw.vs", "src/renderer/shaders/draw_no_gi.fs");
     draw_gi_program = compile_shader_program("src/renderer/shaders/draw.vs", "src/renderer/shaders/draw_gi.fs");
     draw_mbd_program = compile_shader_program("src/renderer/shaders/draw.vs", "src/renderer/shaders/draw_mbd.fs");
     shadow_program = compile_shader_program("src/renderer/shaders/shadow.vs", "src/renderer/shaders/shadow.fs");
     tonemap_program = compile_shader_program("src/renderer/shaders/tonemap.vs", "src/renderer/shaders/tonemap.fs");
 
+    // Create the vbo and vao for the Cornell box
     create_vertex_buffers("assets/CornellBox.obj", "assets/", cornell_box_vbo, cornell_box_vao, cornell_box_vertex_count);
-    generate_shadow_map(4096, &fbo, shadow_map_tex);
 
+    // Create a fullscreen tri for tonemapping
     const float tri_verts[] = {
         -1.0f, -1.0f, 0.0f, 0.0f,
         -1.0f, 3.0f, 0.0f, 2.0f,
@@ -59,6 +63,10 @@ void Renderer::init()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    // Create a shadow map for the scene
+    generate_shadow_map(4096, &fbo, shadow_map_tex);
+
+    // Draw the shadow map once - we don't change the scene at all
     draw_shadow_maps();
 
     camera_pos = glm::vec3(-0.278f, 0.273f, 0.80f);
@@ -69,6 +77,7 @@ void Renderer::init()
     init_imgui();
 }
 
+// Draws the scene from the lights perspective
 void Renderer::draw_shadow_maps()
 {
     glViewport(0, 0, 4096, 4096);
@@ -99,9 +108,9 @@ void Renderer::draw_shadow_maps()
 
     glBindVertexArray(0);
     glUseProgram(0);
-
 }
 
+// Draws the cornell box using the current lighting settings
 void Renderer::draw_cornell_box()
 {
     glEnable(GL_CULL_FACE);
@@ -158,7 +167,7 @@ void Renderer::draw_cornell_box()
     switch (draw_mode) {
         case 0:
             break;
-        case 1:
+        case 1: /* Fallthrough */
         case 2:
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, probe_data_buffer);
             break;
@@ -190,6 +199,7 @@ void Renderer::tonemap()
     glUseProgram(0);
 }
 
+// Draw the scene
 void Renderer::draw()
 {
     glfwPollEvents();
@@ -200,10 +210,8 @@ void Renderer::draw()
         probe_bounce_count++;
 
         glFinish();
-        auto end = std::chrono::high_resolution_clock::now();
-        const std::chrono::duration<double> dur = end - start;
-        std::cout << dur.count() << std::endl;
     }
+
     if (mbd_dirty) {
         update_mbd_buffers();
     }
@@ -241,6 +249,7 @@ void Renderer::draw()
     glfwSwapBuffers(window);
 }
 
+// Cleanup buffers
 void Renderer::cleanup()
 {
     glDeleteVertexArrays(1, &cornell_box_vao);
