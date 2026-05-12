@@ -95,15 +95,17 @@ bool Renderer::check_probe(glm::vec3 pos)
     return true;
 }
 
-void Renderer::place_probes(glm::vec3 extents, glm::vec3 offset, glm::ivec3 res)
+void Renderer::place_probes(glm::vec3 extents, glm::vec3 offset)
 {
+    probe_bounce_count = 0;
+
     probe_grid_offset = offset;
-    probe_grid_res = res;
     probe_grid_extent = extents;
 
+    glm::ivec3 res = probe_grid_res;
+
+    probes.clear();
     std::vector<glm::vec3> probe_coords;
-    glEnable(GL_CULL_FACE);
-    glEnable(GL_DEPTH_TEST);
     for (int z = 0; z < res.z; z++) {
         for (int y = 0; y < res.y; y++) {
             for (int x = 0; x < res.x; x++) {
@@ -124,6 +126,11 @@ void Renderer::place_probes(glm::vec3 extents, glm::vec3 offset, glm::ivec3 res)
     std::vector<unsigned int> valid_list;
     valid_list.resize(probes.size(), 0);
 
+    if (probe_vbo) {
+        glDeleteVertexArrays(1, &probe_vao);
+        glDeleteBuffers(1, &probe_vbo);
+    }
+
     // Create GL buffers for probe data
     glGenBuffers(1, &probe_vbo);
     glGenVertexArrays(1, &probe_vao);
@@ -137,6 +144,10 @@ void Renderer::place_probes(glm::vec3 extents, glm::vec3 offset, glm::ivec3 res)
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
+
+    if (probe_data_buffer) {
+        glDeleteBuffers(1, &probe_data_buffer);
+    }
 
     glGenBuffers(1, &probe_data_buffer);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, probe_data_buffer);
@@ -175,7 +186,6 @@ void Renderer::capture_probes()
 
     glm::mat4 model = glm::scale(glm::mat4(1.0), glm::vec3(0.01));
     glm::mat4 projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.01f, 3.0f);
-    glm::vec3 light_dir = glm::normalize(glm::vec3(-1.7213f, 0.5176f, 0.87704f));
 
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, probe_depth_rbo);
@@ -196,10 +206,16 @@ void Renderer::capture_probes()
      *     convert batch to irradiance SH
      *   quantize SH and store in the final buffer
      */
+
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glEnable(GL_DEPTH_TEST);
+
+    const int cube_res = 64;
     int length = probes.size();
-    int width = 4096 / 64;
+    int width = 4096 / cube_res;
     int area = width * width;
-    int compress_groups = area / 64;
+    int compress_groups = area / cube_res;
     int probe_index = 0;
     for (int probe_index = 0; probe_index < length; probe_index += area) {
         int diff = length - probe_index;
@@ -226,7 +242,7 @@ void Renderer::capture_probes()
             int p_id = 0;
             for (p_id = 0; p_id < area && probe_index + p_id < length; p_id++) {
                 int ind = probe_index + p_id;
-                glViewport(64 * (p_id % width), 64 * (p_id / width), 64, 64);
+                glViewport(cube_res * (p_id % width), cube_res * (p_id / width), cube_res, cube_res);
                 glm::vec3 pos = probes[ind].world_pos;
                 glm::mat4 view = glm::mat4(1.0f);
                 view = glm::lookAt(pos, pos + target_vectors[face], up_vectors[face]);
@@ -263,8 +279,25 @@ void Renderer::capture_probes()
     glUseProgram(0);
 }
 
-QuantSH *
-Renderer::get_probe_data()
+void Renderer::clear_probe_data()
+{
+    probe_bounce_count = 0;
+    if (probe_data_buffer) {
+        float clear_val;
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, probe_data_buffer);
+
+        unsigned int val = 0;
+        glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &val);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 12, &probe_grid_res);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 16, 12, &probe_grid_extent);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 32, 12, &probe_grid_offset);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    }
+}
+
+QuantSH * Renderer::get_probe_data()
 {
     QuantSH *data = new QuantSH[probe_grid_res.x * probe_grid_res.y * probe_grid_res.z];
     if (data == nullptr) {

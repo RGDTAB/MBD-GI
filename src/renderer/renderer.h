@@ -13,14 +13,18 @@
 
 class Renderer {
     private:
+
+    enum DrawModes {DRAW_NO_GI, DRAW_PROBE_GI, DRAW_MBD_GI};
+
     GLFWwindow *window;
 
     int width, height;
-    unsigned int hdr_color_buffer;
     unsigned int tonemap_program;
     unsigned int fullscreen_tri_vbo;
     unsigned int fullscreen_tri_vao;
     unsigned int fbo;
+    unsigned int hdr_color_buffer;
+    unsigned int depth_rbo;
 
     unsigned int draw_no_gi_program;
     unsigned int draw_gi_program;
@@ -31,6 +35,7 @@ class Renderer {
 
     unsigned int shadow_program;
     unsigned int shadow_map_tex;
+    unsigned int shadow_fbo;
 
     struct Probe {
         unsigned int index;
@@ -39,7 +44,7 @@ class Renderer {
         bool valid;
     };
 
-    glm::ivec3 probe_grid_res;
+    glm::ivec3 probe_grid_res = glm::ivec3(16);
     glm::vec3 probe_grid_extent;
     glm::vec3 probe_grid_offset;
 
@@ -53,11 +58,19 @@ class Renderer {
     unsigned int probe_vao;
     unsigned int probe_data_buffer = 0;
     unsigned int probe_temp_buffer = 0;
+    unsigned int max_probe_bounce = 10;
     unsigned int probe_bounce_count = 0;
     unsigned int probe_color_buffer;
     unsigned int probe_depth_rbo;
 
-    MBD mbd_data;
+    MBD mbd_data = {
+        .rank = 4,
+        .basis_res = glm::ivec3(3),
+        .coeff_res = glm::ivec3(16),
+        .b = nullptr,
+        .c = nullptr,
+    };
+
     bool mbd_dirty = false;
     unsigned int mbd_meta_buffer = 0;
     unsigned int mbd_basis_buffer = 0;
@@ -65,13 +78,19 @@ class Renderer {
 
     bool should_render_cornell_box = true;
     bool should_render_probes = false;
-    int draw_mode = 0;
+    int draw_mode = DRAW_PROBE_GI;
+    bool indirect_only = false;
+    bool should_gather_probes = true;
+    bool _should_solve_mbd = false;
+
     bool mbd_collected = false;
 
     glm::mat4 shadow_matrix;
 
     glm::vec3 camera_pos;
     glm::vec3 camera_dir;
+    glm::vec2 light_angles = glm::vec2(2.67f, 1.38f);
+    glm::vec3 light_dir;
     bool orthogonal = false;
 
 
@@ -88,13 +107,16 @@ class Renderer {
 
     void init_probes();
     bool check_probe(glm::vec3 pos);
-    void place_probes(glm::vec3 extents, glm::vec3 offset, glm::ivec3 res);
+    void place_probes(glm::vec3 extents, glm::vec3 offset);
 
     void capture_probes();
+    void clear_probe_data();
 
     void update_mbd_buffers();
 
     public:
+    int mbd_iter = 64;
+
     void init();
     void init_imgui();
 
@@ -109,20 +131,16 @@ class Renderer {
     }
     bool should_solve_mbd()
     {
-        return draw_mode == 3 && !mbd_collected;
+        return _should_solve_mbd && probe_bounce_count == max_probe_bounce;
     }
 
     unsigned int compile_shader_program(const char *vert, const char *frag);
     unsigned int compile_compute_shader(const char *comp);
 
     QuantSH *get_probe_data();
-    int get_probe_count()
-    {
-        return probe_grid_res.x * probe_grid_res.y * probe_grid_res.z;
-    }
-    glm::ivec3 get_grid_res()
-    {
-        return probe_grid_res;
+
+    MBD get_mbd() {
+        return mbd_data;
     }
 
     void set_mbd(MBD &mbd)
@@ -130,5 +148,6 @@ class Renderer {
         mbd_data = mbd;
         mbd_dirty = true;
         mbd_collected = true;
+        _should_solve_mbd = false;
     }
 };

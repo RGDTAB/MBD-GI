@@ -318,7 +318,7 @@ void Solver::solver_thread(MBD &mbd, int index)
     }
 }
 
-void Solver::solve_mbd(MBD &mbd)
+void Solver::solve_mbd(MBD &mbd, const int max_iter)
 {
     // Allocate data for basis and coeffs, as well as their partial derivs
     int basis_vector_count = mbd.basis_res.x * mbd.basis_res.y * mbd.basis_res.z;
@@ -357,7 +357,6 @@ void Solver::solve_mbd(MBD &mbd)
     }
 
     int ready_pos = 0;
-    const int max_iter = 64;
     int i;
     for (i = 0; i < max_iter; i++) {
         generate_random_samples(mbd);

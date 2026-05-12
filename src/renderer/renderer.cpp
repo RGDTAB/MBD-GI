@@ -30,6 +30,12 @@ void Renderer::init()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
 
+    // Create a primary depth buffer
+    glGenRenderbuffers(1, &depth_rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, depth_rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT32F, 4096, 4096);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
     // Create the necessary shader programs
     draw_no_gi_program = compile_shader_program("src/renderer/shaders/draw.vs", "src/renderer/shaders/draw_no_gi.fs");
     draw_gi_program = compile_shader_program("src/renderer/shaders/draw.vs", "src/renderer/shaders/draw_gi.fs");
@@ -63,16 +69,22 @@ void Renderer::init()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
-    // Create a shadow map for the scene
-    generate_shadow_map(4096, &fbo, shadow_map_tex);
+    glGenFramebuffers(1, &fbo);
 
-    // Draw the shadow map once - we don't change the scene at all
+    float sPhi = sin(light_angles.x);
+    float cPhi = cos(light_angles.x);
+    float sTheta = sin(light_angles.y);
+    float cTheta = cos(light_angles.y);
+    light_dir = glm::vec3(sTheta * cPhi, cTheta, sTheta * sPhi);
+
+    // Create a shadow map for the scene
+    generate_shadow_map(4096, &shadow_fbo, shadow_map_tex);
     draw_shadow_maps();
 
     camera_pos = glm::vec3(-0.278f, 0.273f, 0.80f);
     camera_dir = glm::vec3(0.0f, 0.0f, -1.0f);
     init_probes();
-    place_probes(glm::vec3(0.51f, 0.51f, 0.52f), glm::vec3(-0.53f, 0.02f, -0.54f), glm::ivec3(16));
+    place_probes(glm::vec3(0.51f, 0.51f, 0.52f), glm::vec3(-0.53f, 0.02f, -0.54f));
 
     init_imgui();
 }
@@ -81,22 +93,22 @@ void Renderer::init()
 void Renderer::draw_shadow_maps()
 {
     glViewport(0, 0, 4096, 4096);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, shadow_fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadow_map_tex, 0);
     glClear(GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_DEPTH_TEST);
 
     glEnable(GL_CULL_FACE);
     glCullFace(GL_FRONT);
+    glEnable(GL_DEPTH_TEST);
 
     glm::mat4 model = glm::scale(glm::mat4(1.0), glm::vec3(0.01));
 
-    glm::vec3 light_pos = glm::vec3(-1.7213f, 0.5176f, 0.87704f);
+    glm::vec3 light_pos = light_dir * 3.0f;
     glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
     glm::mat4 view = glm::lookAt(light_pos, glm::vec3(0.0f), up);
 
     glm::mat4 projection = glm::mat4(1.0f);
-    projection = glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.7f, 5.0f);
+    projection = glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 5.0f);
 
     shadow_matrix = projection * view;
 
@@ -137,22 +149,18 @@ void Renderer::draw_cornell_box()
 
     glm::mat4 vp = projection * view;
 
-    glm::vec3 light_dir = glm::normalize(glm::vec3(-1.7213f, 0.5176f, 0.87704f));
 
     switch (draw_mode) {
-        case 0:
+        case DRAW_NO_GI:
             glUseProgram(draw_no_gi_program);
             break;
-        case 1:
+        case DRAW_PROBE_GI:
             glUseProgram(draw_gi_program);
-            glUniform1i(4, false);
+            glUniform1i(4, indirect_only);
             break;
-        case 2:
-            glUseProgram(draw_gi_program);
-            glUniform1i(4, true);
-            break;
-        case 3:
+        case DRAW_MBD_GI:
             glUseProgram(draw_mbd_program);
+            glUniform1i(4, indirect_only);
             break;
     }
 
@@ -165,13 +173,12 @@ void Renderer::draw_cornell_box()
     glBindTexture(GL_TEXTURE_2D, shadow_map_tex);
 
     switch (draw_mode) {
-        case 0:
+        case DRAW_NO_GI:
             break;
-        case 1: /* Fallthrough */
-        case 2:
+        case DRAW_PROBE_GI:
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, probe_data_buffer);
             break;
-        case 3:
+        case DRAW_MBD_GI:
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mbd_meta_buffer);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mbd_basis_buffer);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mbd_coeff_buffer);
@@ -204,8 +211,7 @@ void Renderer::draw()
 {
     glfwPollEvents();
 
-    if (draw_mode == 1 && probe_bounce_count < 10) {
-        auto start = std::chrono::high_resolution_clock::now();
+    if (should_gather_probes && probe_bounce_count < max_probe_bounce) {
         capture_probes();
         probe_bounce_count++;
 
@@ -230,6 +236,7 @@ void Renderer::draw()
 
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hdr_color_buffer, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_rbo);
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClearDepth(1.0f);

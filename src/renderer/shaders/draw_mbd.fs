@@ -7,6 +7,7 @@ in vec4 light_pos;
 in vec4 world_pos;
 
 layout (location = 3) uniform vec3 light_dir;
+layout (location = 4) uniform bool ambient_only;
 layout (binding = 0) uniform sampler2DShadow shadow_map;
 
 layout(std430, binding = 0) restrict readonly buffer mbd_info_buffer {
@@ -209,6 +210,9 @@ main()
     vec3 diffuse = 1.0 * vec3((1.0 - shadow) * max(0.0, dot(light_dir, normal)));
     vec3 ambient = get_ambient(world_pos.xyz, normal);
 
-    //frag_color = vec4(vert_color.xyz * (diffuse + ambient), 1.0);
-    frag_color = vec4(ambient, 1.0);
+    if (ambient_only) {
+        frag_color = vec4(ambient, 1.0);
+    } else {
+        frag_color = vec4(vert_color.xyz * (diffuse + ambient), 1.0);
+    }
 }

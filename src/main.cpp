@@ -10,20 +10,16 @@ main()
     Solver solver;
     renderer.init();
 
-    MBD mbd;
-    mbd.basis_res = glm::ivec3(3);
-    mbd.rank = 4;
     while(!renderer.should_close()) {
         renderer.draw();
         if (renderer.should_solve_mbd()) {
             QuantSH *probe_data = nullptr;
             probe_data = renderer.get_probe_data();
             if (probe_data != nullptr) {
-                glm::ivec3 res = renderer.get_grid_res();
-                solver.set_probe_data(probe_data, res);
+                MBD mbd = renderer.get_mbd();
+                solver.set_probe_data(probe_data, mbd.coeff_res);
 
-                mbd.coeff_res = res;
-                solver.solve_mbd(mbd);
+                solver.solve_mbd(mbd, renderer.mbd_iter);
                 renderer.set_mbd(mbd);
             }
         }

@@ -16,6 +16,7 @@ shadow_test()
     proj_coords = fma(proj_coords, vec3(0.5), vec3(0.5));
 
     float current_depth = proj_coords.z;
+
     vec2 texel_size = 1.0 / textureSize(shadow_map, 0);
     texel_size *= 1.2;
     
@@ -26,7 +27,6 @@ shadow_test()
         }
     }
     pcf_shadow /= 25.0;
-
 
     return pcf_shadow;
 }

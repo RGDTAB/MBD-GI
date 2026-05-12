@@ -92,7 +92,7 @@ class Solver {
         void set_probe_data(QuantSH *comp_sh, glm::ivec3 probe_res);
 
         float *compute_pca(int n_components);
-        void solve_mbd(MBD &mbd);
+        void solve_mbd(MBD &mbd, const int max_iter);
 
         float rand_float()
         {
